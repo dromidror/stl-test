@@ -1,15 +1,38 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// The available ways to view the loaded model.
+enum ViewMode: String, CaseIterable, Identifiable {
+    case model = "3D Model"
+    case crossSection = "Cross Section"
+
+    var id: String { rawValue }
+
+    var systemImage: String {
+        switch self {
+        case .model: return "cube"
+        case .crossSection: return "square.dashed"
+        }
+    }
+}
+
 struct ContentView: View {
     @EnvironmentObject private var store: ModelStore
     @State private var isImporterPresented = false
+    @State private var viewMode: ViewMode = .model
 
     var body: some View {
         ZStack {
             if store.modelNode != nil {
-                STLSceneView(modelNode: store.modelNode)
-                    .ignoresSafeArea()
+                switch viewMode {
+                case .model:
+                    STLSceneView(modelNode: store.modelNode)
+                        .ignoresSafeArea()
+                case .crossSection:
+                    if let mesh = store.mesh {
+                        CrossSectionView(mesh: mesh)
+                    }
+                }
             } else {
                 emptyState
             }
@@ -22,6 +45,17 @@ struct ContentView: View {
         }
         .frame(minWidth: 640, minHeight: 480)
         .toolbar {
+            if store.modelNode != nil {
+                ToolbarItem(placement: .principal) {
+                    Picker("View", selection: $viewMode) {
+                        ForEach(ViewMode.allCases) { mode in
+                            Label(mode.rawValue, systemImage: mode.systemImage)
+                                .tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+            }
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     isImporterPresented = true
@@ -45,7 +79,7 @@ struct ContentView: View {
                 store.errorMessage = error.localizedDescription
             }
         }
-        .overlay(alignment: .bottom) {
+        .overlay(alignment: .topLeading) {
             if let name = store.fileName, store.modelNode != nil {
                 Text("\(name)  ·  \(store.triangleCount) triangles")
                     .font(.callout)
@@ -53,7 +87,7 @@ struct ContentView: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
                     .background(.ultraThinMaterial, in: Capsule())
-                    .padding(.bottom, 12)
+                    .padding(12)
             }
         }
         .alert(

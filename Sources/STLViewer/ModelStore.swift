@@ -15,6 +15,7 @@ extension UTType {
 @MainActor
 final class ModelStore: ObservableObject {
     @Published var modelNode: SCNNode?
+    @Published var mesh: STLMesh?
     @Published var fileName: String?
     @Published var triangleCount: Int = 0
     @Published var isLoading = false
@@ -42,6 +43,7 @@ final class ModelStore: ObservableObject {
 
                 await MainActor.run {
                     self.modelNode = node
+                    self.mesh = mesh
                     self.fileName = url.lastPathComponent
                     self.triangleCount = count
                     self.isLoading = false
