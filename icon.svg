@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">STL Viewer application icon</title>
+  <desc id="desc">A polished isometric cube bearing S on its top, T on its left, and L on its right face.</desc>
+  <defs>
+    <linearGradient id="background" x1="120" y1="90" x2="900" y2="970" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#203c68"/>
+      <stop offset=".52" stop-color="#162b50"/>
+      <stop offset="1" stop-color="#0b1830"/>
+    </linearGradient>
+    <linearGradient id="top" x1="510" y1="188" x2="510" y2="507" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8cecff"/>
+      <stop offset="1" stop-color="#3a9fd5"/>
+    </linearGradient>
+    <linearGradient id="left" x1="220" y1="470" x2="514" y2="820" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1875b1"/>
+      <stop offset="1" stop-color="#0a3f79"/>
+    </linearGradient>
+    <linearGradient id="right" x1="510" y1="485" x2="810" y2="822" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#245d9d"/>
+      <stop offset="1" stop-color="#102d60"/>
+    </linearGradient>
+    <filter id="shadow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="24"/>
+    </filter>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="9" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect x="36" y="36" width="952" height="952" rx="214" fill="url(#background)"/>
+  <rect x="49" y="49" width="926" height="926" rx="201" fill="none" stroke="#91dcff" stroke-opacity=".18" stroke-width="5"/>
+  <ellipse cx="514" cy="830" rx="310" ry="72" fill="#000d26" opacity=".75" filter="url(#shadow)"/>
+  <!-- Cube -->
+  <path d="M512 180 816 355 512 530 208 355Z" fill="url(#top)" stroke="#b8f3ff" stroke-width="11" stroke-linejoin="round"/>
+  <path d="M208 355 512 530v340L208 695Z" fill="url(#left)" stroke="#5dcaff" stroke-width="11" stroke-linejoin="round"/>
+  <path d="M512 530 816 355v340L512 870Z" fill="url(#right)" stroke="#65c9ff" stroke-width="11" stroke-linejoin="round"/>
+  <path d="M512 180 816 355 512 530 208 355Z" fill="none" stroke="#d4f8ff" stroke-opacity=".56" stroke-width="4" stroke-linejoin="round"/>
+  <!-- Subtle wireframe detail, evoking a 3D mesh -->
+  <g fill="none" stroke="#b9efff" stroke-opacity=".23" stroke-width="4">
+    <path d="M270 391 512 531 754 391M270 462 512 602 754 462M270 533 512 673 754 533"/>
+    <path d="M329 425v306M390 460v307M451 495v308M573 495v308M634 460v307M695 425v306"/>
+  </g>
+  <!-- Exact face labels -->
+  <g fill="#f4fdff" font-family="SF Pro Display, Helvetica Neue, Arial, sans-serif" font-weight="800" text-anchor="middle" filter="url(#glow)">
+    <text x="512" y="402" font-size="208">S</text>
+    <text x="356" y="682" font-size="190">T</text>
+    <text x="666" y="682" font-size="190">L</text>
+  </g>
+  <path d="M225 350 512 185 799 350" fill="none" stroke="#e8fcff" stroke-opacity=".55" stroke-width="7" stroke-linecap="round"/>
+</svg>

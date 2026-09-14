@@ -20,6 +20,11 @@ cp "$BIN_PATH/STLViewer" "$BUNDLE/Contents/MacOS/STLViewer"
 
 cp Info.plist "$BUNDLE/Contents/Info.plist"
 
+# Include the app icon if it has been generated.
+if [[ -f "Resources/AppIcon.icns" ]]; then
+    cp "Resources/AppIcon.icns" "$BUNDLE/Contents/Resources/AppIcon.icns"
+fi
+
 # Ad-hoc code signature so macOS will launch it locally.
 codesign --force --deep --sign - "$BUNDLE" 2>/dev/null || true
 
