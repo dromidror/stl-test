@@ -81,12 +81,7 @@ struct ContentView: View {
         }
         .overlay(alignment: .topLeading) {
             if let name = store.fileName, store.modelNode != nil {
-                Text("\(name)  ·  \(store.triangleCount) triangles")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(.ultraThinMaterial, in: Capsule())
+                fileInfo(name: name)
                     .padding(12)
             }
         }
@@ -101,6 +96,30 @@ struct ContentView: View {
         } message: {
             Text(store.errorMessage ?? "")
         }
+    }
+
+    /// Info card shown in the top-left: file name, triangle count, and the
+    /// overall model size (X, Y, Z extents of the bounding box, in the file's
+    /// native units).
+    private func fileInfo(name: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("\(name)  ·  \(store.triangleCount) triangles")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+
+            if let mesh = store.mesh {
+                let box = mesh.boundingBox
+                let sx = box.max.x - box.min.x
+                let sy = box.max.y - box.min.y
+                let sz = box.max.z - box.min.z
+                Text(String(format: "Size  X %.2f  ×  Y %.2f  ×  Z %.2f (units)", sx, sy, sz))
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
     }
 
     private var emptyState: some View {

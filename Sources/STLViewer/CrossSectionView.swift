@@ -1,11 +1,13 @@
 import SwiftUI
 import simd
 
-/// Displays a 2D cross-section of the loaded model, sliced by the XY plane at
-/// an adjustable Z (near/far) depth. X maps to the horizontal axis and Y to the
-/// vertical axis. The view is centered on the model's center so the slice stays
-/// put as the depth changes.
-/// Maps between model XY coordinates and view (screen) coordinates for a given
+/// Displays a 2D cross-section of the loaded model. Standard STL orientation is
+/// X = width, Y = depth, Z = height. The cut can be Horizontal (XY plane at a
+/// constant Z height) or Vertical (XZ plane at a constant Y depth). The chosen
+/// plane's two axes map to the 2D view (horizontal u, vertical v), centered on
+/// the model center so the slice stays put as the cut position changes.
+///
+/// Maps between plane (u, v) coordinates and view (screen) coordinates for a given
 /// canvas size, placing the model center at the view center. Shared by drawing
 /// and hit-testing so a clicked point maps back to the same model coordinates
 /// that were drawn.
@@ -39,51 +41,81 @@ private struct SectionProjection {
 struct CrossSectionView: View {
     let mesh: STLMesh
 
+    /// Position of the cutting plane along its normal axis.
     @State private var z: Float = 0
     @State private var didInitialize = false
 
-    /// The user-placed crosshair position, in model XY coordinates.
+    /// The cut orientation (horizontal = XY plane, vertical = XZ plane).
+    @State private var orientation: CutOrientation = .horizontal
+
+    /// The user-placed crosshair position, in the slice plane's (u, v) coords.
     @State private var cursor: SIMD2<Float>?
 
     /// The local section width at the current cursor, recomputed on demand.
     private var cursorWidth: CrossSectionWidth? {
         guard let cursor else { return nil }
-        return CrossSectionSlicer.slice(mesh: mesh, atZ: z).width(at: cursor)
+        return CrossSectionSlicer.slice(mesh: mesh, at: z, orientation: orientation)
+            .width(at: cursor)
     }
 
-    /// The model's Z range, used to bound the slider.
-    private var zRange: ClosedRange<Float> {
+    /// The range of the slice axis, used to bound the slider.
+    private var sliceRange: ClosedRange<Float> {
         let box = mesh.boundingBox
-        let lo = box.min.z
-        let hi = box.max.z
+        let axis = orientation.sliceAxis
+        let lo = box.min[axis]
+        let hi = box.max[axis]
         return lo < hi ? lo...hi : lo...(lo + 1)
     }
 
-    /// The XY center of the model — the origin of the 2D view.
-    private var modelCenterXY: SIMD2<Float> {
+    /// The center of the model in the current plane's (u, v) coords — the
+    /// origin of the 2D view.
+    private var planeCenter: SIMD2<Float> {
         let box = mesh.boundingBox
-        return SIMD2<Float>(
-            (box.min.x + box.max.x) * 0.5,
-            (box.min.y + box.max.y) * 0.5
+        let (u, v) = orientation.planeAxes
+        let center = (box.min + box.max) * 0.5
+        return SIMD2<Float>(center[u], center[v])
+    }
+
+    /// Half-extent (in the plane's axes) used to compute a fit-to-view scale.
+    private var planeHalfExtent: Float {
+        let box = mesh.boundingBox
+        let (u, v) = orientation.planeAxes
+        let eu = (box.max[u] - box.min[u]) * 0.5
+        let ev = (box.max[v] - box.min[v]) * 0.5
+        return max(eu, ev)
+    }
+
+    /// Formats the cursor's full X/Y/Z model position. The two in-plane axes
+    /// come from the cursor (u, v); the third is the current slice position.
+    private func cursorReadout(_ c: SIMD2<Float>) -> String {
+        var coords = [Float](repeating: 0, count: 3)
+        let (u, v) = orientation.planeAxes
+        coords[u] = c.x
+        coords[v] = c.y
+        coords[orientation.sliceAxis] = z
+        return String(
+            format: "Cursor:  X %.3f   Y %.3f   Z %.3f",
+            coords[0], coords[1], coords[2]
         )
     }
 
-    /// Half-extent used to compute a fit-to-view scale.
-    private var modelHalfExtentXY: Float {
+    /// Reset the cursor and re-center the slider when the orientation changes,
+    /// since the 2D coordinate system and slice axis both change meaning.
+    private func resetForOrientation() {
+        cursor = nil
         let box = mesh.boundingBox
-        let ex = (box.max.x - box.min.x) * 0.5
-        let ey = (box.max.y - box.min.y) * 0.5
-        return max(ex, ey)
+        let axis = orientation.sliceAxis
+        z = (box.min[axis] + box.max[axis]) * 0.5
     }
 
     var body: some View {
         VStack(spacing: 0) {
             GeometryReader { geo in
-                let section = CrossSectionSlicer.slice(mesh: mesh, atZ: z)
+                let section = CrossSectionSlicer.slice(mesh: mesh, at: z, orientation: orientation)
                 let projection = SectionProjection(
                     size: geo.size,
-                    modelCenter: modelCenterXY,
-                    halfExtent: modelHalfExtentXY
+                    modelCenter: planeCenter,
+                    halfExtent: planeHalfExtent
                 )
                 let widthMeasure = cursor.flatMap { section.width(at: $0) }
                 Canvas { context, size in
@@ -111,25 +143,44 @@ struct CrossSectionView: View {
         }
         .onAppear {
             if !didInitialize {
-                // Start at the mid-height of the model.
+                // Start at the middle of the slice axis.
                 let box = mesh.boundingBox
-                z = (box.min.z + box.max.z) * 0.5
+                let axis = orientation.sliceAxis
+                z = (box.min[axis] + box.max[axis]) * 0.5
                 didInitialize = true
             }
+        }
+        .onChange(of: orientation) { _ in
+            resetForOrientation()
         }
     }
 
     private var controls: some View {
         VStack(spacing: 8) {
             HStack {
-                Text("Z depth")
+                Text("Cut")
                     .font(.callout)
+                Picker("Cut", selection: $orientation) {
+                    ForEach(CutOrientation.allCases) { o in
+                        Text(o.rawValue).tag(o)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 220)
+                Spacer()
+            }
+
+            HStack {
+                Text(orientation.sliceAxisLabel)
+                    .font(.callout)
+                    .frame(width: 70, alignment: .leading)
                 Slider(
                     value: Binding(
                         get: { Double(z) },
                         set: { z = Float($0) }
                     ),
-                    in: Double(zRange.lowerBound)...Double(zRange.upperBound)
+                    in: Double(sliceRange.lowerBound)...Double(sliceRange.upperBound)
                 )
                 Text(String(format: "%.3f", z))
                     .font(.system(.callout, design: .monospaced))
@@ -140,7 +191,7 @@ struct CrossSectionView: View {
                 Image(systemName: "scope")
                     .foregroundStyle(.red)
                 if let cursor {
-                    Text(String(format: "Cursor:  X %.3f   Y %.3f   Z %.3f", cursor.x, cursor.y, z))
+                    Text(cursorReadout(cursor))
                         .font(.system(.callout, design: .monospaced))
                     if let w = cursorWidth, w.width > 1e-6 {
                         Text(String(format: "Width %.3f", w.width))
@@ -188,7 +239,7 @@ struct CrossSectionView: View {
         context.stroke(axes, with: .color(.gray.opacity(0.25)), lineWidth: 1)
 
         if section.segments.isEmpty {
-            let text = Text("No intersection at this depth")
+            let text = Text("No intersection at this position")
                 .foregroundColor(.secondary)
             context.draw(text, at: center)
         } else {

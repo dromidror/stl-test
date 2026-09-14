@@ -1,31 +1,74 @@
 import Foundation
 import simd
 
-/// A 2D line segment in the XY plane produced by slicing the mesh.
+/// A 2D line segment (in the slice's u/v plane) produced by slicing the mesh.
 struct CrossSectionSegment {
     var a: SIMD2<Float>
     var b: SIMD2<Float>
 }
 
-/// The result of slicing a mesh with a horizontal (Z = constant) plane.
+/// The orientation of the cutting plane, in standard STL axes
+/// (X = width, Y = depth, Z = height).
+enum CutOrientation: String, CaseIterable, Identifiable {
+    /// A level cut on the XY plane at a constant Z (height). 2D view: X × Y.
+    case horizontal = "Horizontal"
+    /// An upright cut on the XZ plane at a constant Y (depth). 2D view: X × Z.
+    case vertical = "Vertical"
+
+    var id: String { rawValue }
+
+    /// The axis normal to the cutting plane (the axis the slider moves along).
+    /// 0 = X, 1 = Y, 2 = Z.
+    var sliceAxis: Int {
+        switch self {
+        case .horizontal: return 2 // Z (height)
+        case .vertical:   return 1 // Y (depth)
+        }
+    }
+
+    /// The two model axes that map to the 2D (u, v) view plane.
+    var planeAxes: (u: Int, v: Int) {
+        switch self {
+        case .horizontal: return (0, 1) // X (width) horizontal, Y (depth) vertical
+        case .vertical:   return (0, 2) // X (width) horizontal, Z (height) vertical
+        }
+    }
+
+    /// Human-readable label for the slider (the axis being swept).
+    var sliceAxisLabel: String {
+        switch self {
+        case .horizontal: return "Z height"
+        case .vertical:   return "Y depth"
+        }
+    }
+}
+
+/// The result of slicing a mesh with a plane.
 struct CrossSection {
     var segments: [CrossSectionSegment]
-    /// The Z height at which the slice was taken.
+    /// The position of the cutting plane along its normal axis.
     var z: Float
-    /// 2D bounding box of the resulting segments.
+    /// 2D bounding box of the resulting segments (in u/v plane coordinates).
     var bounds: (min: SIMD2<Float>, max: SIMD2<Float>)
 }
 
 enum CrossSectionSlicer {
 
-    /// Slices the mesh with the XY plane at depth Z = `z`, returning the line
-    /// segments where the surface intersects that plane, projected onto the XY
-    /// plane (X horizontal, Y vertical).
+    /// Slices the mesh with a plane perpendicular to `orientation.sliceAxis` at
+    /// position `value`, returning the line segments where the surface
+    /// intersects that plane, projected onto the orientation's (u, v) plane.
     ///
     /// For each triangle we find the edges that straddle the plane and connect
     /// the two intersection points into a single segment. Triangles that lie
-    /// entirely above or below the plane contribute nothing.
-    static func slice(mesh: STLMesh, atZ z: Float) -> CrossSection {
+    /// entirely on one side of the plane contribute nothing.
+    static func slice(
+        mesh: STLMesh,
+        at value: Float,
+        orientation: CutOrientation = .horizontal
+    ) -> CrossSection {
+        let axis = orientation.sliceAxis
+        let (uAxis, vAxis) = orientation.planeAxes
+
         var segments = [CrossSectionSegment]()
         segments.reserveCapacity(mesh.triangles.count / 4)
 
@@ -36,22 +79,21 @@ enum CrossSectionSlicer {
             let verts = [tri.v0, tri.v1, tri.v2]
             var crossings = [SIMD2<Float>]()
 
-            // Check each of the three edges for a crossing of the Z=z plane.
             for i in 0..<3 {
                 let p0 = verts[i]
                 let p1 = verts[(i + 1) % 3]
-                let d0 = p0.z - z
-                let d1 = p1.z - z
+                let d0 = p0[axis] - value
+                let d1 = p1[axis] - value
 
                 // Edge straddles the plane (endpoints on opposite sides).
                 if (d0 < 0 && d1 > 0) || (d0 > 0 && d1 < 0) {
                     let t = d0 / (d0 - d1)
-                    let x = p0.x + t * (p1.x - p0.x)
-                    let y = p0.y + t * (p1.y - p0.y)
-                    crossings.append(SIMD2<Float>(x, y))
+                    let u = p0[uAxis] + t * (p1[uAxis] - p0[uAxis])
+                    let v = p0[vAxis] + t * (p1[vAxis] - p0[vAxis])
+                    crossings.append(SIMD2<Float>(u, v))
                 } else if d0 == 0 {
                     // Vertex lies exactly on the plane.
-                    crossings.append(SIMD2<Float>(p0.x, p0.y))
+                    crossings.append(SIMD2<Float>(p0[uAxis], p0[vAxis]))
                 }
             }
 
@@ -59,7 +101,6 @@ enum CrossSectionSlicer {
             if crossings.count >= 2 {
                 let a = crossings[0]
                 let b = crossings[1]
-                // Skip degenerate zero-length segments.
                 if simd_distance(a, b) > 1e-7 {
                     segments.append(CrossSectionSegment(a: a, b: b))
                     minB = simd_min(minB, simd_min(a, b))
@@ -73,7 +114,7 @@ enum CrossSectionSlicer {
             maxB = .zero
         }
 
-        return CrossSection(segments: segments, z: z, bounds: (minB, maxB))
+        return CrossSection(segments: segments, z: value, bounds: (minB, maxB))
     }
 }
 
@@ -187,9 +228,21 @@ extension CrossSection {
             let lo = uniq[i]
             let hi = uniq[i + 1]
             if hi - lo < 1e-6 { continue }
-            let midT = (lo + hi) * 0.5
-            let midPoint = point + normal * midT
-            guard contains(midPoint) else { continue }
+
+            // A span counts as interior only if samples along it are inside the
+            // model. Sampling at 25/50/75% (majority vote) avoids accepting a
+            // span whose exact midpoint happens to land on a boundary. Each
+            // sample is nudged slightly sideways (along the tangent) so it never
+            // lies exactly on the measured line's crossing vertices, which keeps
+            // the point-in-polygon test away from degenerate configurations.
+            let sideEps = max(bounds.max.x - bounds.min.x, bounds.max.y - bounds.min.y) * 1e-4
+            let side = tangent * sideEps
+            let samplesInside = [0.25, 0.5, 0.75].reduce(0) { acc, f in
+                let base = point + normal * (lo + (hi - lo) * Float(f))
+                let inside = contains(base) || contains(base + side) || contains(base - side)
+                return acc + (inside ? 1 : 0)
+            }
+            guard samplesInside >= 2 else { continue }
 
             // Prefer the interior span straddling t=0 (the crosshair); otherwise
             // pick the interior span closest to the crosshair.
@@ -212,16 +265,35 @@ extension CrossSection {
     }
 
     /// Even-odd point-in-polygon test against the (unordered) contour segments.
-    /// Casts a ray in +X and counts crossings; odd means inside the solid.
-    private func contains(_ p: SIMD2<Float>) -> Bool {
+    ///
+    /// Casts a horizontal ray in +X and counts crossings; odd means inside.
+    /// To avoid the classic degeneracy where the ray passes exactly through a
+    /// shared vertex (which double-counts or misses a crossing and flips the
+    /// result), the test is sampled at three slightly jittered Y offsets and
+    /// the majority vote is returned.
+    func contains(_ p: SIMD2<Float>) -> Bool {
+        // Scale the jitter to the model size so it is meaningful but tiny.
+        let span = max(bounds.max.y - bounds.min.y, 1e-4)
+        let eps = span * 1e-4
+
+        var inCount = 0
+        for dy in [-eps, 0, eps] {
+            if containsRaw(SIMD2<Float>(p.x, p.y + dy)) {
+                inCount += 1
+            }
+        }
+        return inCount >= 2
+    }
+
+    /// Single even-odd crossing test with the half-open rule.
+    private func containsRaw(_ p: SIMD2<Float>) -> Bool {
         var crossings = 0
         for seg in segments {
             let a = seg.a
             let b = seg.b
-            // Does the horizontal ray at y = p.y cross this segment?
+            // Half-open interval on y so a shared vertex is counted once.
             let straddles = (a.y > p.y) != (b.y > p.y)
             if straddles {
-                // X coordinate of the segment at height p.y.
                 let t = (p.y - a.y) / (b.y - a.y)
                 let xCross = a.x + t * (b.x - a.x)
                 if xCross > p.x {

@@ -34,14 +34,26 @@ struct STLSceneView: NSViewRepresentable {
     private func makeScene() -> SCNScene {
         let scene = SCNScene()
 
-        // Camera
+        // Camera.
+        //
+        // Standard STL orientation: X = width, Y = depth, Z = height (up).
+        // The initial framing is a side elevation: the camera sits in front of
+        // the model along -Y (depth) and looks toward the XY plane, with Z
+        // pointing up. This shows width (X) horizontally and height (Z)
+        // vertically, so the object appears standing on the XY ground plane.
         let cameraNode = SCNNode()
         let camera = SCNCamera()
         camera.zNear = 0.01
         camera.zFar = 1000
         camera.wantsHDR = true
         cameraNode.camera = camera
-        cameraNode.position = SCNVector3(0, 0, 28)
+        cameraNode.position = SCNVector3(0, -28, 0)
+        // Look at the origin with +Z (height) pointing up on screen.
+        cameraNode.look(
+            at: SCNVector3(0, 0, 0),
+            up: SCNVector3(0, 0, 1),
+            localFront: SCNVector3(0, 0, -1)
+        )
         cameraNode.name = "camera"
         scene.rootNode.addChildNode(cameraNode)
 
